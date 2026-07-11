@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generador de Órdenes — Los Arrieros</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  /* ── Reset & base ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --yellow:  #F5C518;
+    --dark:    #111111;
+    --gray:    #2A2A2A;
+    --lgray:   #999999;
+    --border:  #E8E8E8;
+    --bg:      #F0F0F0;
+    --white:   #FFFFFF;
+    --radius:  6px;
+    --font:    'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--dark);
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  .app {
+    max-width: 960px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+  }
+
+  /* ── App header ───────────────────────────────────────────────────── */
+  .app-header {
+    grid-column: 1 / -1;
+    background: var(--dark);
+    border-radius: var(--radius);
+    padding: 20px 28px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .app-header .brand-badge {
+    background: var(--yellow);
+    color: var(--dark);
+    font-weight: 900;
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .app-header h1 {
+    color: var(--white);
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  .app-header p {
+    color: var(--lgray);
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  /* ── Panel: formulario ────────────────────────────────────────────── */
+  .panel {
+    background: var(--white);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+  }
+
+  .panel-title {
+    background: var(--gray);
+    color: var(--yellow);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 10px 18px;
+  }
+
+  .panel-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+
+  .field label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--lgray);
+    text-transform: uppercase;
+    letter-spacing: .8px;
+  }
+
+  .field input,
+  .field textarea,
+  .field select {
+    border: 1.5px solid var(--border);
+    border-radius: 4px;
+    padding: 8px 11px;
+    font-family: var(--font);
+    font-size: 13.5px;
+    color: var(--dark);
+    transition: border-color .15s;
+    width: 100%;
+    background: var(--white);
+  }
+
+  .field input:focus,
+  .field textarea:focus,
+  .field select:focus {
+    outline: none;
+    border-color: var(--yellow);
+    box-shadow: 0 0 0 3px rgba(245,197,24,.15);
+  }
+
+  .field textarea { resize: vertical; min-height: 68px; }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── Botón generar ────────────────────────────────────────────────── */
+  .btn-generate {
+    grid-column: 1 / -1;
+    background: var(--yellow);
+    color: var(--dark);
+    border: none;
+    border-radius: var(--radius);
+    padding: 14px 24px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: .5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: opacity .15s, transform .1s;
+  }
+
+  .btn-generate:hover  { opacity: .88; }
+  .btn-generate:active { transform: scale(.98); }
+
+  .btn-generate svg { flex-shrink: 0; }
+
+  /* ── Preview ──────────────────────────────────────────────────────── */
+  .preview-wrap {
+    grid-column: 1 / -1;
+    display: none;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .preview-wrap.visible { display: flex; }
+
+  .preview-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--lgray);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* ── Orden de cobro (preview + render interno) ────────────────────── */
+  #orden-preview {
+    background: var(--white);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,.12);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    color: var(--dark);
+    max-width: 700px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* Header amarillo */
+  .ord-header {
+    background: var(--yellow);
+    padding: 18px 24px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .ord-header-left h2 {
+    font-size: 22px;
+    font-weight: 900;
+    color: var(--dark);
+    letter-spacing: -.3px;
+    line-height: 1;
+  }
+
+  .ord-header-left .ord-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-top: 5px;
+  }
+
+  .ord-header-right {
+    text-align: right;
+    font-size: 11px;
+    color: var(--dark);
+    line-height: 1.5;
+  }
+
+  .ord-header-right strong { font-size: 13px; font-weight: 800; }
+
+  /* Cuerpo */
+  .ord-body { padding: 0 20px 20px; }
+
+  /* Sección */
+  .ord-section {
+    background: #2A2A2A;
+    color: var(--yellow);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    margin: 14px -20px 0;
+  }
+
+  /* Fila de campo */
+  .ord-row {
+    display: grid;
+    grid-template-columns: 34% 66%;
+    border-bottom: 1px solid var(--border);
+    padding: 8px 4px;
+    align-items: center;
+  }
+
+  .ord-row:last-child { border-bottom: none; }
+
+  .ord-row .lbl {
+    font-size: 11px;
+    color: var(--lgray);
+  }
+
+  .ord-row .val {
+    font-size: 12.5px;
+    color: var(--dark);
+  }
+
+  .ord-row .val.bold { font-weight: 700; }
+
+  /* Observación */
+  .ord-obs {
+    padding: 10px 4px 4px;
+    font-size: 11.5px;
+    font-style: italic;
+    color: #444;
+    line-height: 1.55;
+  }
+
+  /* Valor */
+  .ord-valor-box {
+    background: var(--yellow);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0;
+  }
+
+  .ord-valor-box .amount {
+    font-size: 26px;
+    font-weight: 900;
+    color: var(--dark);
+  }
+
+  .ord-valor-box .currency {
+    font-size: 11px;
+    color: var(--dark);
+  }
+
+  /* Sección pago + QR */
+  .ord-pago-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    align-items: center;
+    padding-bottom: 4px;
+  }
+
+  .ord-qr-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+
+  #qr-canvas { border: 1px solid var(--border); border-radius: 3px; }
+
+  .ord-qr-label {
+    font-size: 9px;
+    text-align: center;
+    color: var(--lgray);
+    line-height: 1.4;
+  }
+
+  /* Footer */
+  .ord-footer {
+    border-top: 1px solid var(--gray);
+    padding: 8px 20px;
+    font-size: 10px;
+    color: var(--lgray);
+    text-align: center;
+    background: #fafafa;
+  }
+
+  /* ── Botón descargar ──────────────────────────────────────────────── */
+  .btn-download {
+    background: var(--dark);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius);
+    padding: 12px 22px;
+    font-family: var(--font);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: opacity .15s;
+    align-self: flex-start;
+  }
+
+  .btn-download:hover { opacity: .82; }
+
+  /* ── QR oculto para captura ───────────────────────────────────────── */
+  #qr-hidden { position: absolute; left: -9999px; top: 0; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand-badge">Los Arrieros</div>
+    <div>
+      <h1>Generador de Órdenes de Cobro</h1>
+      <p>Completa los campos y genera el PDF listo para compartir o imprimir.</p>
+    </div>
+  </header>
+
+  <!-- Panel 1: Encabezado de la orden -->
+  <div class="panel">
+    <div class="panel-title">Encabezado de la orden</div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label>Número de orden</label>
+          <input id="f-numero" type="text" value="LAR-001-2025">
+        </div>
+        <div class="field">
+          <label>Fecha de expedición</label>
+          <input id="f-fecha" type="date">
+        </div>
+      </div>
+      <div class="field">
+        <label>Caducidad</label>
+        <input id="f-caducidad" type="text" value="Sin fecha de caducidad" placeholder="Ej: 30 días">
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel 2: Detalle del servicio -->
+  <div class="panel">
+    <div class="panel-title">Detalle del servicio</div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Tipo de servicio</label>
+        <input id="f-tipo" type="text" value="Transporte de Equipo de Construcción">
+      </div>
+      <div class="field">
+        <label>Descripción</label>
+        <input id="f-desc" type="text" value="Traslado de Mezclador (Concretera)">
+      </div>
+      <div class="field">
+        <label>Origen (empresa/lugar)</label>
+        <input id="f-origen" type="text" value="CMT Constructores SAS">
+      </div>
+      <div class="field">
+        <label>Dirección origen</label>
+        <input id="f-dir-origen" type="text" value="Cl. 1 Sur #50C-07, Medellín">
+      </div>
+      <div class="field">
+        <label>Destino (empresa/lugar)</label>
+        <input id="f-destino" type="text" value="PCL SAS">
+      </div>
+      <div class="field">
+        <label>Dirección destino</label>
+        <input id="f-dir-destino" type="text" value="Cra. 46 #32-54, La Candelaria, Medellín">
+      </div>
+      <div class="field">
+        <label>Recorrido aprox.</label>
+        <input id="f-recorrido" type="text" value="~9 km  (Cl. 1 Sur / El Poblado → La Candelaria, Centro)">
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel 3: Observación y valor -->
+  <div class="panel">
+    <div class="panel-title">Observación y valor</div>
+    <div class="panel-body">
+      <div class="field">
+        <label>Observación</label>
+        <textarea id="f-obs">La distancia recorrida se estimó en aproximadamente 9 km, tomando la ruta habitual Av. El Poblado – Av. Regional – Centro, desde Cl. 1 Sur #50C-07 (Ciudad del Río / El Poblado) hasta Cra. 46 #32-54 (La Candelaria, Medellín).</textarea>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Valor ($)</label>
+          <input id="f-valor" type="text" value="80.000">
+        </div>
+        <div class="field">
+          <label>Moneda</label>
+          <input id="f-moneda" type="text" value="Pesos colombianos">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Panel 4: Datos de pago -->
+  <div class="panel">
+    <div class="panel-title">Datos de pago</div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label>Banco</label>
+          <input id="f-banco" type="text" value="Bancolombia">
+        </div>
+        <div class="field">
+          <label>Tipo de cuenta</label>
+          <input id="f-tipo-cuenta" type="text" value="Ahorros">
+        </div>
+      </div>
+      <div class="field">
+        <label>No. de cuenta</label>
+        <input id="f-cuenta" type="text" value="43027267603">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Titular</label>
+          <input id="f-titular" type="text" value="Armando Mesia">
+        </div>
+        <div class="field">
+          <label>C.E. / C.C.</label>
+          <input id="f-ce" type="text" value="491245">
+        </div>
+      </div>
+      <div class="field">
+        <label>WhatsApp (QR)</label>
+        <input id="f-whatsapp" type="text" value="324 951 0577">
+      </div>
+    </div>
+  </div>
+
+  <!-- Botón generar -->
+  <button class="btn-generate" onclick="generarPreview()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M9 12l2 2 4-4"/><rect x="3" y="3" width="18" height="18" rx="2"/>
+    </svg>
+    Generar Vista Previa
+  </button>
+
+  <!-- Preview -->
+  <div class="preview-wrap" id="preview-wrap">
+    <div class="preview-label">Vista previa — Orden de Cobro</div>
+
+    <div id="orden-preview">
+      <!-- Se construye dinámicamente -->
+    </div>
+
+    <button class="btn-download" onclick="generarPDF()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      Descargar PDF
+    </button>
+  </div>
+
+</div>
+
+<!-- QR oculto para captura -->
+<div id="qr-hidden"></div>
+
+<script>
+// ── Autocompletar fecha de hoy ───────────────────────────────────────────────
+(function() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth()+1).padStart(2,'0');
+  const d = String(today.getDate()).padStart(2,'0');
+  document.getElementById('f-fecha').value = `${y}-${m}-${d}`;
+})();
+
+// ── Leer todos los campos del formulario ─────────────────────────────────────
+function leerCampos() {
+  const fecha = document.getElementById('f-fecha').value;
+  let fechaFmt = '';
+  if (fecha) {
+    const [y,m,d] = fecha.split('-');
+    const meses = ['enero','febrero','marzo','abril','mayo','junio',
+                   'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    fechaFmt = `${parseInt(d)} de ${meses[parseInt(m)-1]} de ${y}`;
+  }
+  return {
+    numero:     document.getElementById('f-numero').value.trim(),
+    fecha:      fechaFmt,
+    caducidad:  document.getElementById('f-caducidad').value.trim(),
+    tipo:       document.getElementById('f-tipo').value.trim(),
+    desc:       document.getElementById('f-desc').value.trim(),
+    origen:     document.getElementById('f-origen').value.trim(),
+    dirOrigen:  document.getElementById('f-dir-origen').value.trim(),
+    destino:    document.getElementById('f-destino').value.trim(),
+    dirDestino: document.getElementById('f-dir-destino').value.trim(),
+    recorrido:  document.getElementById('f-recorrido').value.trim(),
+    obs:        document.getElementById('f-obs').value.trim(),
+    valor:      document.getElementById('f-valor').value.trim(),
+    moneda:     document.getElementById('f-moneda').value.trim(),
+    banco:      document.getElementById('f-banco').value.trim(),
+    tipoCuenta: document.getElementById('f-tipo-cuenta').value.trim(),
+    cuenta:     document.getElementById('f-cuenta').value.trim(),
+    titular:    document.getElementById('f-titular').value.trim(),
+    ce:         document.getElementById('f-ce').value.trim(),
+    whatsapp:   document.getElementById('f-whatsapp').value.trim(),
+  };
+}
+
+// ── Construir HTML de la orden ───────────────────────────────────────────────
+function buildOrdenHTML(d, qrDataURL) {
+  const obsNegrita = d.obs.replace(/(\d+\s*km)/g, '<strong>$1</strong>');
+
+  return `
+    <div class="ord-header">
+      <div class="ord-header-left">
+        <h2>ORDEN DE COBRO</h2>
+        <div class="ord-num">No. ${d.numero}${d.fecha ? '  ·  ' + d.fecha : ''}</div>
+      </div>
+      <div class="ord-header-right">
+        <strong>LOS ARRIEROS</strong><br>
+        Acarreos que mueven tu mundo<br>
+        ${d.caducidad}
+      </div>
+    </div>
+
+    <div class="ord-body">
+
+      <div class="ord-section">Detalle del servicio</div>
+      <div class="ord-row"><span class="lbl">Tipo de servicio:</span><span class="val">${d.tipo}</span></div>
+      <div class="ord-row"><span class="lbl">Descripción:</span><span class="val bold">${d.desc}</span></div>
+      <div class="ord-row"><span class="lbl">Origen:</span><span class="val">${d.origen}</span></div>
+      <div class="ord-row"><span class="lbl">Dirección origen:</span><span class="val">${d.dirOrigen}</span></div>
+      <div class="ord-row"><span class="lbl">Destino:</span><span class="val">${d.destino}</span></div>
+      <div class="ord-row"><span class="lbl">Dirección destino:</span><span class="val">${d.dirDestino}</span></div>
+      <div class="ord-row"><span class="lbl">Recorrido aprox.:</span><span class="val">${d.recorrido}</span></div>
+
+      <div class="ord-section">Observación</div>
+      <div class="ord-obs">${obsNegrita}</div>
+
+      <div class="ord-section">Valor a cancelar</div>
+      <div class="ord-valor-box">
+        <span class="amount">$ ${d.valor}</span>
+        <span class="currency">${d.moneda}</span>
+      </div>
+
+      <div class="ord-section">Datos para el pago</div>
+      <div class="ord-pago-grid">
+        <div>
+          <div class="ord-row"><span class="lbl">Banco:</span><span class="val">${d.banco}</span></div>
+          <div class="ord-row"><span class="lbl">Tipo de cuenta:</span><span class="val">${d.tipoCuenta}</span></div>
+          <div class="ord-row"><span class="lbl">No. de cuenta:</span><span class="val bold">${d.cuenta}</span></div>
+          <div class="ord-row"><span class="lbl">Titular:</span><span class="val">${d.titular}</span></div>
+          <div class="ord-row"><span class="lbl">C.E.:</span><span class="val">${d.ce}</span></div>
+        </div>
+        <div class="ord-qr-block">
+          ${qrDataURL ? `<img id="qr-canvas" src="${qrDataURL}" width="80" height="80">` : ''}
+          <div class="ord-qr-label">
+            <strong>Escanea para<br>WhatsApp</strong><br>
+            ${d.whatsapp}<br>Medellín y Área Metropolitana
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="ord-footer">
+      Los Arrieros  ·  Acarreos que mueven tu mundo  ·  ${d.whatsapp}  ·  Medellín
+    </div>
+  `;
+}
+
+// ── Generar QR como dataURL ──────────────────────────────────────────────────
+function generarQR(texto) {
+  return new Promise(resolve => {
+    const container = document.getElementById('qr-hidden');
+    container.innerHTML = '';
+    const div = document.createElement('div');
+    container.appendChild(div);
+    new QRCode(div, {
+      text: `https://wa.me/57${texto.replace(/\s/g,'')}`,
+      width: 120, height: 120,
+      colorDark: '#000000', colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.H
+    });
+    // QRCode es síncrono pero necesita un tick para renderizar
+    setTimeout(() => {
+      const canvas = div.querySelector('canvas');
+      resolve(canvas ? canvas.toDataURL('image/png') : null);
+    }, 100);
+  });
+}
+
+// ── Preview ──────────────────────────────────────────────────────────────────
+async function generarPreview() {
+  const d = leerCampos();
+  const qrDataURL = await generarQR(d.whatsapp);
+  const html = buildOrdenHTML(d, qrDataURL);
+  document.getElementById('orden-preview').innerHTML = html;
+  const wrap = document.getElementById('preview-wrap');
+  wrap.classList.add('visible');
+  wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Generar PDF con jsPDF ─────────────────────────────────────────────────────
+async function generarPDF() {
+  const d = leerCampos();
+
+  // Generar QR como imagen
+  const qrDataURL = await generarQR(d.whatsapp);
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+
+  const PW   = 210;  // page width mm
+  const ML   = 20;   // margin left
+  const MR   = 20;   // margin right
+  const CW   = PW - ML - MR;  // 170mm content width
+  const YELLOW = [245, 197, 24];
+  const DARK   = [17, 17, 17];
+  const GRAY   = [42, 42, 42];
+  const LGRAY  = [153, 153, 153];
+  const WHITE  = [255, 255, 255];
+  const LBORD  = [232, 232, 232];
+
+  let Y = 15;  // cursor Y
+
+  // ── HEADER ──────────────────────────────────────────────────────────
+  doc.setFillColor(...YELLOW);
+  doc.rect(ML, Y, CW, 26, 'F');
+
+  doc.setTextColor(...DARK);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text('ORDEN DE COBRO', ML + 5, Y + 10);
+
+  doc.setFontSize(8);
+  doc.text(`No. ${d.numero}${d.fecha ? '   ·   ' + d.fecha : ''}`, ML + 5, Y + 17);
+
+  // Lado derecho del header
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.text('LOS ARRIEROS', PW - MR - 5, Y + 8, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.text('Acarreos que mueven tu mundo', PW - MR - 5, Y + 13, { align: 'right' });
+  doc.text(d.caducidad, PW - MR - 5, Y + 18, { align: 'right' });
+
+  Y += 32;
+
+  // ── HELPER FUNCTIONS ────────────────────────────────────────────────
+  const sectionH = 7;
+  const rowH = 7.5;
+
+  function drawSection(label) {
+    doc.setFillColor(...GRAY);
+    doc.rect(ML, Y, CW, sectionH, 'F');
+    doc.setTextColor(...YELLOW);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text(label, ML + 4, Y + 4.5);
+    Y += sectionH;
+  }
+
+  function drawRow(label, value, bold = false) {
+    doc.setTextColor(...LGRAY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(label, ML + 3, Y + 4.8);
+
+    doc.setTextColor(...DARK);
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(8.5);
+    doc.text(value, ML + CW * 0.35 + 2, Y + 4.8);
+
+    doc.setDrawColor(...LBORD);
+    doc.setLineWidth(0.2);
+    doc.line(ML, Y + rowH, ML + CW, Y + rowH);
+
+    Y += rowH;
+  }
+
+  // ── DETALLE DEL SERVICIO ─────────────────────────────────────────────
+  drawSection('DETALLE DEL SERVICIO');
+  drawRow('Tipo de servicio:', d.tipo);
+  drawRow('Descripción:', d.desc, true);
+  drawRow('Origen:', d.origen);
+  drawRow('Dirección origen:', d.dirOrigen);
+  drawRow('Destino:', d.destino);
+  drawRow('Dirección destino:', d.dirDestino);
+  drawRow('Recorrido aprox.:', d.recorrido);
+  Y += 3;
+
+  // ── OBSERVACIÓN ──────────────────────────────────────────────────────
+  drawSection('OBSERVACIÓN');
+  Y += 2;
+  doc.setTextColor(68, 68, 68);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  const obsLines = doc.splitTextToSize(d.obs, CW - 6);
+  doc.text(obsLines, ML + 3, Y + 4);
+  Y += obsLines.length * 4.5 + 6;
+
+  // ── VALOR ────────────────────────────────────────────────────────────
+  drawSection('VALOR A CANCELAR');
+  doc.setFillColor(...YELLOW);
+  doc.rect(ML, Y, CW, 14, 'F');
+  doc.setTextColor(...DARK);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.text(`$ ${d.valor}`, ML + 6, Y + 9.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.text(d.moneda, ML + CW - 4, Y + 9, { align: 'right' });
+  Y += 18;
+
+  // ── DATOS PARA EL PAGO + QR ──────────────────────────────────────────
+  drawSection('DATOS PARA EL PAGO');
+
+  const pagoColW = CW * 0.65;
+  const pagoRows = [
+    ['Banco:',          d.banco,      false],
+    ['Tipo de cuenta:', d.tipoCuenta, false],
+    ['No. de cuenta:',  d.cuenta,     true],
+    ['Titular:',        d.titular,    false],
+    ['C.E.:',           d.ce,         false],
+  ];
+
+  const pagoStartY = Y;
+  for (const [lbl, val, bold] of pagoRows) {
+    doc.setTextColor(...LGRAY);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text(lbl, ML + 3, Y + 4.8);
+
+    doc.setTextColor(...DARK);
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(8.5);
+    doc.text(val, ML + CW * 0.35 + 2, Y + 4.8);
+
+    doc.setDrawColor(...LBORD);
+    doc.setLineWidth(0.2);
+    doc.line(ML, Y + rowH, ML + pagoColW, Y + rowH);
+    Y += rowH;
+  }
+
+  // QR
+  if (qrDataURL) {
+    const qrX = ML + pagoColW + 4;
+    const qrY = pagoStartY + 1;
+    const qrS = 26;
+    doc.addImage(qrDataURL, 'PNG', qrX, qrY, qrS, qrS);
+
+    doc.setTextColor(...DARK);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('Escanea para WhatsApp', qrX + qrS/2, qrY + qrS + 4, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.text(d.whatsapp, qrX + qrS/2, qrY + qrS + 8, { align: 'center' });
+    doc.text('Medellín y Área Metropolitana', qrX + qrS/2, qrY + qrS + 11.5, { align: 'center' });
+  }
+
+  Y += 6;
+
+  // ── FOOTER ───────────────────────────────────────────────────────────
+  doc.setDrawColor(...GRAY);
+  doc.setLineWidth(0.6);
+  doc.line(ML, Y, ML + CW, Y);
+  Y += 4;
+  doc.setTextColor(...LGRAY);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.text(
+    `Los Arrieros  ·  Acarreos que mueven tu mundo  ·  ${d.whatsapp}  ·  Medellín`,
+    PW / 2, Y, { align: 'center' }
+  );
+
+  // ── GUARDAR ──────────────────────────────────────────────────────────
+  const nombreArchivo = `Orden_Cobro_${d.numero.replace(/[^a-zA-Z0-9]/g,'_')}.pdf`;
+  doc.save(nombreArchivo);
+}
+</script>
+
+</body>
+</html>
